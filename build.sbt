@@ -70,6 +70,16 @@ lazy val effect = project.
   settings(commonSettings: _*).
   settings(normalizedName := "korolev-effect")
 
+lazy val `server-standalone` = (project in file("server") / "standalone")
+  .enablePlugins(GitVersioning)
+  .settings(crossVersionSettings)
+  .settings(commonSettings: _*)
+  .settings(
+    libraryDependencies += "org.specs2" %% "specs2-core" % "4.6.0" % "test",
+    normalizedName := "korolev-server-standalone"
+  )
+  .dependsOn(korolev)
+
 lazy val korolev = project.
   enablePlugins(GitVersioning).
   settings(crossVersionSettings).
@@ -301,6 +311,7 @@ lazy val root = project.in(file(".")).
     formDataExample, `file-streaming-example`, delayExample, focusExample,
     webComponentExample, componentExample, akkaHttpExample, contextScopeExample,
     eventDataExample, extensionExample, `integration-tests`,
-    zioExample, monixExample, catsEffectExample, `performance-benchmark`
+    zioExample, monixExample, catsEffectExample, `performance-benchmark`,
+    `server-standalone`
   )
 
