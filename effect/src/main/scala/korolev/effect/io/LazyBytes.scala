@@ -18,17 +18,21 @@ package korolev.effect.io
 
 import java.io.InputStream
 import java.nio.ByteBuffer
-import java.nio.charset.StandardCharsets
+import java.nio.charset.{Charset, StandardCharsets}
 
 import korolev.effect.{Effect, Stream}
 
 import scala.annotation.tailrec
 
 final case class LazyBytes[F[_] : Effect](chunks: Stream[F, Array[Byte]],
-                                          bytesLength: Option[Long]) {
+                                          bytesLength: Option[Long]) { lhs =>
+
+  def ++(rhs: LazyBytes[F]): LazyBytes[F] =
+    new LazyBytes(lhs.chunks ++ rhs.chunks,
+      for (ls <- lhs.bytesLength; rs <- rhs.bytesLength) yield ls + rs)
 
   /**
-    * Folds all data to one byte array. Completes [[chunks.consumed]].
+    * Folds all data to one byte array.
     */
   def toStrict: F[Array[Byte]] = {
     def aux(acc: List[Array[Byte]]): F[List[Array[Byte]]] = {
@@ -66,7 +70,13 @@ final case class LazyBytes[F[_] : Effect](chunks: Stream[F, Array[Byte]],
 
 object LazyBytes {
 
-  def apply[F[_] : Effect](bytes: Array[Byte]): LazyBytes[F] = {
+  def apply[F[_] : Effect](s: String): LazyBytes[F] =
+    LazyBytes(s.getBytes(StandardCharsets.UTF_8))
+
+  def apply[F[_] : Effect](s: String, charset: Charset): LazyBytes[F] =
+    LazyBytes(s.getBytes(charset))
+
+  def apply[F[_] : Effect](bytes: Array[Byte])(implicit dummyImplicit: DummyImplicit): LazyBytes[F] = {
     new LazyBytes(Stream.eval(bytes), Some(bytes.length.toLong))
   }
 

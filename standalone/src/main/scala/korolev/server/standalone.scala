@@ -2,18 +2,19 @@ package korolev.server
 
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
-import java.nio.channels.{AsynchronousChannelGroup, AsynchronousServerSocketChannel, AsynchronousSocketChannel, CompletionHandler, ServerSocketChannel}
+import java.nio.channels.{AsynchronousChannelGroup, AsynchronousServerSocketChannel, AsynchronousSocketChannel, CompletionHandler}
 import java.util.concurrent.ExecutorService
 
-import korolev.Async
-import korolev.server.internal.SocketChannelProcessor
+import korolev.effect.{Effect, Reporter}
+import korolev.effect.io.Http
+import korolev.effect.syntax._
 
 object standalone {
 
-  def buildServer[F[_]: Async](service: KorolevService[F],
+  def buildServer[F[_]: Effect](service: KorolevService[F],
                         host: String,
                         port: Int)
-                       (implicit executorService: ExecutorService) = {
+                       (implicit executorService: ExecutorService) = Effect[F].delay {
 
     val serverAddress = new InetSocketAddress(host, port)
     val asyncChannelGroup = AsynchronousChannelGroup.withThreadPool(executorService)
@@ -25,13 +26,16 @@ object standalone {
       def completed(clientChannel: AsynchronousSocketChannel, notUsed: Unit): Unit = {
         // Ready to accept new connection
         serverChannel.accept((), AcceptHandler)
-        new SocketChannelProcessor(clientChannel, service)
+        Http
+          .processChannel(clientChannel, ByteBuffer.allocate(512), service)
+          .foreach(_ => Effect[F].unit)
+          .runAsyncForget(Reporter.PrintReporter)
       }
       def failed(throwable: Throwable, notUsed: Unit): Unit =
         throwable.printStackTrace()
     }
     serverChannel.accept((), AcceptHandler)
-    Async[F].pure(serverChannel)
+    serverChannel
   }
 
 

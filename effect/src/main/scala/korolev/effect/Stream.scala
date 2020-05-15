@@ -19,7 +19,7 @@ package korolev.effect
 import java.io.Closeable
 import java.util.concurrent.atomic.AtomicBoolean
 
-import syntax._
+import korolev.effect.syntax._
 
 abstract class Stream[F[_]: Effect, A] { lhs =>
 
@@ -291,6 +291,25 @@ object Stream {
     new Stream[F, T] {
       def pull(): F[Option[T]] = Effect[F].flatMap(eventuallyStream)(_.pull())
       def cancel(): F[Unit] = Effect[F].flatMap(eventuallyStream)(_.cancel())
+    }
+  }
+
+  def unfold[F[_]: Effect, S, T](default: S, doCancel: () => F[Unit] = null)
+                                (loop: S => F[(S, Option[T])]): Stream[F, T] = {
+    new Stream[F, T] {
+      @volatile private var state = default
+      def pull(): F[Option[T]] = loop(state)
+        .map {
+          case (newState, None) =>
+            state = newState
+            None
+          case (newState, maybeElem) =>
+            state = newState
+            maybeElem
+        }
+      def cancel(): F[Unit] =
+        if (doCancel != null) doCancel()
+        else Effect[F].unit
     }
   }
 

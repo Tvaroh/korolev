@@ -19,6 +19,7 @@ package korolev.server
 object Headers {
 
   final val ContentType = "content-type"
+  final val ContentLength = "content-length"
   final val SetCookie = "set-cookie"
   final val CacheControl = "cache-control"
 

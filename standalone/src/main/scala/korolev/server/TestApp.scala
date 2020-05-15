@@ -1,10 +1,12 @@
 package korolev.server
 
-import korolev.Context
+import java.util.concurrent.Executors
 
-import scala.concurrent.Future
-import korolev.execution._
+import korolev.Context
 import korolev.state.javaSerialization._
+
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.{ExecutionContext, Future}
 
 object TestApp extends App {
 
@@ -12,8 +14,15 @@ object TestApp extends App {
   import html._
   val context = Context[Future, String, Any]
   import context._
+
+  implicit val ec = ExecutionContext
+    .fromExecutorService(Executors.newCachedThreadPool())
+
   val config = KorolevServiceConfig[Future, String, Any](
     stateLoader = StateLoader.default("Hello world"),
+    head = _ => Seq(
+      link(rel := "stylesheet", href := "static/main.css")
+    ),
     render = (state) => optimize {
       body(
         state,
@@ -24,7 +33,7 @@ object TestApp extends App {
       )
     }
   )
-  val service = korolevService(mimeTypes, config)
+  val service = korolevService(config)
 //  val service: KorolevService[Future] = {
 //    case Request(path, param, cookie, headers, body) =>
 //      for {

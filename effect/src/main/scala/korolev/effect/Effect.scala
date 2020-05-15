@@ -31,6 +31,7 @@ import scala.util.Try
 trait Effect[F[_]] {
   def pure[A](value: A): F[A]
   def delay[A](value: => A): F[A]
+  def delayAsync[A](value: => F[A]): F[A] = flatMap(delay(value))(identity)
   def fail[A](e: Throwable): F[A]
   def unit: F[Unit]
   def fromTry[A](value: => Try[A]): F[A]
