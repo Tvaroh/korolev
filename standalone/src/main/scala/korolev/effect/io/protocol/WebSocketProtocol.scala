@@ -38,6 +38,7 @@ object WebSocketProtocol {
   sealed trait DecodingState
 
   object DecodingState {
+    val begin: DecodingState = Begin
     case object Begin extends DecodingState
     case class ShortLength(fin: Boolean, mask: Boolean, opcode: Int) extends DecodingState
     case class LongLength(fin: Boolean, mask: Boolean, opcode: Int) extends DecodingState

@@ -5,8 +5,10 @@ import java.nio.ByteBuffer
 import java.nio.channels.{AsynchronousChannelGroup, AsynchronousServerSocketChannel, AsynchronousSocketChannel, CompletionHandler}
 import java.util.concurrent.ExecutorService
 
-import korolev.effect.{Effect, Reporter}
-import korolev.effect.io.Http
+import korolev.data.ByteVector
+import korolev.effect.io.protocol.WebSocketProtocol
+import korolev.effect.{Decoder, Effect, Reporter}
+import korolev.effect.io.{Http, LazyBytes, Socket}
 import korolev.effect.syntax._
 
 object standalone {
@@ -26,9 +28,35 @@ object standalone {
       def completed(clientChannel: AsynchronousSocketChannel, notUsed: Unit): Unit = {
         // Ready to accept new connection
         serverChannel.accept((), AcceptHandler)
+        val decoder = Decoder(Socket.read(clientChannel, ByteBuffer.allocate(512)))
         Http
-          .processChannel(clientChannel, ByteBuffer.allocate(512), service)
-          .foreach(_ => Effect[F].unit)
+          .decodeRequest(decoder)
+          .foreach { request =>
+            WebSocketProtocol.findIntention(request) match {
+              case Some(intention) =>
+                // TODO should be moved to upgradeResponse
+                val messages = Decoder(request.body.chunks.map(ByteVector(_)))
+                  .decode((ByteVector.empty, WebSocketProtocol.DecodingState.begin)) {
+                    case ((buffer, state), incoming) =>
+                      WebSocketProtocol.decodeFrames(buffer, state, incoming)
+                  }
+                  .collect {
+                    case WebSocketProtocol.Frame.Text(message) =>
+                      message
+                  }
+                service.ws(request.copy(body = messages)) flatMap { response =>
+                  val upgradedResponse = WebSocketProtocol.upgradeResponse(response, intention)
+                  val upgradedBody = response.body.map(m => WebSocketProtocol.encodeFrame(WebSocketProtocol.Frame.Text(m), None).mkArray)
+                  val upgradedResponse2 = upgradedResponse.copy(body = LazyBytes(upgradedBody, None))
+                  Http.renderResponse(upgradedResponse2).foreach(Socket.write(clientChannel))
+                }
+              case _ =>
+                // This is just HTTP query
+                service.http(request).flatMap { response =>
+                  Http.renderResponse(response).foreach(Socket.write(clientChannel))
+                }
+            }
+          }
           .runAsyncForget(Reporter.PrintReporter)
       }
       def failed(throwable: Throwable, notUsed: Unit): Unit =

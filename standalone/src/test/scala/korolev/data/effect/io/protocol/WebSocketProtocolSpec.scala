@@ -24,8 +24,8 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
     cookie = _ => None,
     headers = Seq(
       "connection" -> "upgrade",
-      "sec-webSocket-key" -> HandshakeKey,
-      "sec-webSocket-version" -> "13"
+      "sec-websocket-key" -> HandshakeKey,
+      "sec-websocket-version" -> "13"
     ),
     body = ()
   )
@@ -145,9 +145,9 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
     val upgrade = WebSocketProtocol.upgradeResponse(BasicHttpResponse, WebSocketProtocol.Intention(HandshakeKey))
     def find(h: String) = upgrade.headers.collectFirst { case (`h`, v) => v }
     upgrade.status.code shouldEqual 101
-    find("upgrade") shouldEqual Some("websocket")
-    find("connection") shouldEqual Some("Upgrade")
-    find("sec-websocket-accept") shouldEqual Some(HandshakeAccept)
+    find("Upgrade") shouldEqual Some("websocket")
+    find("Connection") shouldEqual Some("Upgrade")
+    find("Sec-WebSocket-Accept") shouldEqual Some(HandshakeAccept)
   }
 
   private def randomFrame(random: Random, size: Int): Frame = {

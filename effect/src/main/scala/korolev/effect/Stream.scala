@@ -54,6 +54,18 @@ abstract class Stream[F[_]: Effect, A] { lhs =>
     }     
   }
 
+  def collect[B](f: PartialFunction[A, B]): Stream[F, B] = new Stream[F, B] {
+    val liftedF: A => Option[B] = f.lift
+    def cancel(): F[Unit] = lhs.cancel()
+    def pull(): F[Option[B]] = lhs.pull() flatMap {
+      case None => Effect[F].pure(None)
+      case Some(value) =>
+        val result = liftedF(value)
+        if (result.isEmpty) pull()
+        else Effect[F].pure(result)
+    }
+  }
+
   def map[B](f: A => B): Stream[F, B] = new Stream[F, B] {
     def cancel(): F[Unit] = lhs.cancel()
     def pull(): F[Option[B]] = Effect[F]
@@ -265,6 +277,11 @@ object Stream {
       val cancel: F[Unit] = Effect[F].unit
     }
   }
+
+//  def never[F[_]: Effect, T]: Stream[F, T] =  new Stream[F, T] {
+//    val pull: F[Option[T]] = Effect[F].never
+//    val cancel: F[Unit] = Effect[F].unit
+//  }
 
   def eval[F[_]: Effect, T](xs: T*): Stream[F, T] =
     new Stream[F, T] {

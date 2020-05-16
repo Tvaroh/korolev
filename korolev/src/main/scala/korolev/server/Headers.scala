@@ -18,14 +18,14 @@ package korolev.server
 
 object Headers {
 
-  final val Connection = "connection"
-  final val Upgrade = "upgrade"
+  final val Connection = "Connection"
+  final val Upgrade = "Upgrade"
   final val ContentType = "content-type"
   final val ContentLength = "content-length"
   final val SetCookie = "set-cookie"
   final val CacheControl = "cache-control"
   final val SecWebSocketKey = "sec-websocket-key"
-  final val SecWebSocketAccept = "sec-websocket-accept"
+  final val SecWebSocketAccept = "Sec-WebSocket-Accept"
 
   final val CacheControlNoCache = CacheControl -> "no-store, no-cache, must-revalidate"
   final val ContentTypeHtmlUtf8 = ContentType -> "text/html; charset=utf-8"
