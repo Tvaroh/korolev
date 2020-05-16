@@ -46,7 +46,7 @@ object Http {
         case -1 =>
 //          println(s"buffering:")
 //          println(s"  incoming:\n${indent(incomingBytes.asciiString)}")
-          Effect[F].pure((allBytes, Decoder.Action.Next))
+          Effect[F].pure((allBytes, Decoder.Action.TakeNext))
         case lastByteOfHeader =>
           val (bodyBytes, request) = parseRequest(allBytes, lastByteOfHeader)
 //          println("header found:")
@@ -67,7 +67,7 @@ object Http {
             responseBytes = LazyBytes(renderResponseHeader(response.status, hs)) ++ response.body
             _ <- responseBytes.chunks.foreach(Socket.write(channel))
           } yield {
-            (ByteVector.empty, Decoder.Action.Next)
+            (ByteVector.empty, Decoder.Action.TakeNext)
           }
       }
     }
@@ -179,13 +179,13 @@ object Http {
           // Push left slice to a downstream
           // and take back right slice to the upstream
           decoder.takeBack(rhs) >>
-            Effect[F].pure((bytesTotal, Decoder.Action.Value(lhs)))
+            Effect[F].pure((bytesTotal, Decoder.Action.PushValue(lhs)))
         } else if (bytesTotal > contentLength) {
           // Pull after fort
           // Take back all data to the upstream
-          decoder.takeBack(bytes) >> Effect[F].pure((bytesTotal, Decoder.Action.End))
+          decoder.takeBack(bytes) >> Effect[F].pure((bytesTotal, Decoder.Action.Finish))
         } else {
-          Effect[F].pure((bytesTotal, Decoder.Action.LastValue(bytes)))
+          Effect[F].pure((bytesTotal, Decoder.Action.PushLastValue(bytes)))
         }
     }
     // TODO bytevector

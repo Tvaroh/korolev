@@ -20,12 +20,15 @@ class Decoder[F[_]: Effect, A](upstream: Stream[F, A]) extends Stream[F, A] { se
     upstream.cancel()
 
   def takeBack(item: A): F[Unit] =
-    Effect[F].delay { takenBackQueue = item :: takenBackQueue }
+    Effect[F].delay { unsafeTakeBack(item) }
 
-  def decode[S, B](default: => S)(f: (S, A) => (S, Action[B])): Stream[F, B] =
+  private def unsafeTakeBack(item: A): Unit =
+    takenBackQueue = item :: takenBackQueue
+
+  def decode[S, B](default: => S)(f: (S, A) => (S, Action[A, B])): Stream[F, B] =
     decodeAsync(default)((s, a) => Effect[F].pure(f(s, a)))
 
-  def decodeAsync[S, B](default: => S)(f: (S, A) => F[(S, Action[B])]): Stream[F, B] =
+  def decodeAsync[S, B](default: => S)(f: (S, A) => F[(S, Action[A, B])]): Stream[F, B] =
     new Stream[F, B] {
       var state: S = default
       var finished = false
@@ -35,17 +38,25 @@ class Decoder[F[_]: Effect, A](upstream: Stream[F, A]) extends Stream[F, A] { se
           self.pull().flatMap {
             case Some(x) =>
               f(state, x) flatMap {
-                case (newState, Action.LastValue(value)) =>
+                case (newState, Action.PushLastValue(value)) =>
                   state = newState
                   finished = true
                   Effect[F].pure(Some(value))
-                case (newState, Action.Value(value)) =>
+                case (newState, Action.PushValue(value)) =>
                   state = newState
                   Effect[F].pure(Some(value))
-                case (newState, Action.Next) =>
+                case (newState, Action.Fork(value, takenBack)) =>
+                  state = newState
+                  unsafeTakeBack(takenBack)
+                  Effect[F].pure(Some(value))
+                case (newState, Action.TakeBack(takenBack)) =>
+                  state = newState
+                  unsafeTakeBack(takenBack)
+                  pull()
+                case (newState, Action.TakeNext) =>
                   state = newState
                   pull()
-                case (newState, Action.End) =>
+                case (newState, Action.Finish) =>
                   state = newState
                   Effect[F].pure(None)
               }
@@ -60,13 +71,15 @@ class Decoder[F[_]: Effect, A](upstream: Stream[F, A]) extends Stream[F, A] { se
 
 object Decoder {
 
-  sealed trait Action[+T]
+  sealed trait Action[+From, +To]
 
   object Action {
-    case class LastValue[+T](value: T) extends Action[T]
-    case class Value[+T](value: T) extends Action[T]
-    case object End extends Action[Nothing]
-    case object Next extends Action[Nothing]
+    case class PushLastValue[+To](value: To) extends Action[Nothing, To]
+    case class PushValue[+To](value: To) extends Action[Nothing, To]
+    case class Fork[+From, +To](value: To, takeBack: From) extends Action[From, To]
+    case class TakeBack[+From](value: From) extends Action[From, Nothing]
+    case object TakeNext extends Action[Nothing, Nothing]
+    case object Finish extends Action[Nothing, Nothing]
   }
 
   def apply[F[_]: Effect, A](upstream: Stream[F, A]): Decoder[F, A] =
