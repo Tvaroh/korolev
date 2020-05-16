@@ -1,9 +1,11 @@
 package korolev.data.effect.io.protocol
 
+import korolev.Router
 import korolev.data.ByteVector
 import korolev.effect.Decoder
 import korolev.effect.io.protocol.WebSocketProtocol
-import korolev.effect.io.protocol.WebSocketProtocol.{DecodingState, WebSocketFrame}
+import korolev.effect.io.protocol.WebSocketProtocol.{DecodingState, Frame, Intention}
+import korolev.server.{Request, Response}
 import org.scalatest.{Assertion, FlatSpec, Matchers}
 
 import scala.annotation.tailrec
@@ -13,13 +15,40 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
 
   final val SliceTestFramesNumber = 10
 
-  // Examples from RFC https://tools.ietf.org/html/rfc6455
+  // Example handshake from RFC
+  final val HandshakeKey = "dGhlIHNhbXBsZSBub25jZQ=="
+  final val HandshakeAccept = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+  final val HandshakeRequest = Request(
+    path = Router.Root,
+    param = _ => None,
+    cookie = _ => None,
+    headers = Seq(
+      "connection" -> "upgrade",
+      "sec-webSocket-key" -> HandshakeKey,
+      "sec-webSocket-version" -> "13"
+    ),
+    body = ()
+  )
+  final val BasicHttpRequest = Request(
+    path = Router.Root,
+    param = _ => None,
+    cookie = _ => None,
+    headers = Seq.empty,
+    body = ()
+  )
+  final val BasicHttpResponse = Response(
+    status = Response.Status.Ok,
+    headers = Nil,
+    body = ()
+  )
+
+  // Example frames from RFC
   final val helloUnmaskedBytes = ByteVector(0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f)
   final val helloMaskedBytes = ByteVector(0x81, 0x85, 0x37, 0xfa, 0x21, 0x3d, 0x7f, 0x9f, 0x4d, 0x51, 0x58)
-  final val helloFrame = WebSocketFrame.Text("Hello")
+  final val helloFrame = Frame.Text("Hello")
   final val helloMask = 0x37fa213d
 
-  "encodeFrame" should "produce same bytes as in RFC 5.7. unmasked example" in {
+  "encodeFrame" should "produce same bytes as in RFC (https://tools.ietf.org/html/rfc6455) 5.7. unmasked example" in {
     WebSocketProtocol.encodeFrame(helloFrame, None) shouldEqual helloUnmaskedBytes
   }
 
@@ -27,7 +56,7 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
     WebSocketProtocol.encodeFrame(helloFrame, Some(helloMask)) shouldEqual helloMaskedBytes
   }
 
-  "decodeFrames" should "process example frame" in {
+  "decodeFrames" should "process example frame (from RFC https://tools.ietf.org/html/rfc6455 5.7)" in {
     WebSocketProtocol.decodeFrame(helloUnmaskedBytes) should matchPattern {
       case (_, Decoder.Action.PushValue(`helloFrame`)) => ()
     }
@@ -62,13 +91,13 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
       acc ++ WebSocketProtocol.encodeFrame(frame, None)
     }
     val slices = slice(Vector.empty, encodedFrames, (SliceTestFramesNumber * 1.5).toInt)
-    val fsmInitial = (ByteVector.empty, DecodingState.Begin: DecodingState, Vector.empty[WebSocketFrame])
+    val fsmInitial = (ByteVector.empty, DecodingState.Begin: DecodingState, Vector.empty[Frame])
 
     @tailrec
     def decodeSlice(buffer: ByteVector,
                     state: DecodingState,
-                    acc: Vector[WebSocketFrame],
-                    slice: ByteVector): (ByteVector, DecodingState, Vector[WebSocketFrame]) =
+                    acc: Vector[Frame],
+                    slice: ByteVector): (ByteVector, DecodingState, Vector[Frame]) =
       WebSocketProtocol.decodeFrames(buffer, state, slice) match {
         case ((newBuffer, newState), Decoder.Action.PushValue(frame)) =>
           (newBuffer, newState, acc :+ frame)
@@ -102,10 +131,29 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
 
   it should "be isomorphic on large frame with mask" in isoCheck(70000, masked = true)
 
-  private def randomFrame(random: Random, size: Int): WebSocketFrame = {
+  "findIntention" should "detect browser want to open WebSocket connection" in {
+    val maybeIntention = WebSocketProtocol.findIntention(HandshakeRequest)
+    maybeIntention shouldEqual Some(Intention(HandshakeKey))
+  }
+
+  it should "understand that browser send just a regular HTTP request" in {
+    val maybeIntention = WebSocketProtocol.findIntention(BasicHttpRequest)
+    maybeIntention shouldEqual None
+  }
+
+  "upgradeResponse" should "add right headers (example from RFC (from RFC https://tools.ietf.org/html/rfc6455 1.2)" in {
+    val upgrade = WebSocketProtocol.upgradeResponse(BasicHttpResponse, WebSocketProtocol.Intention(HandshakeKey))
+    def find(h: String) = upgrade.headers.collectFirst { case (`h`, v) => v }
+    upgrade.status.code shouldEqual 101
+    find("upgrade") shouldEqual Some("websocket")
+    find("connection") shouldEqual Some("Upgrade")
+    find("sec-websocket-accept") shouldEqual Some(HandshakeAccept)
+  }
+
+  private def randomFrame(random: Random, size: Int): Frame = {
     val data = new Array[Byte](size)
     random.nextBytes(data)
-    WebSocketFrame.Binary(ByteVector(data))
+    Frame.Binary(ByteVector(data))
   }
 
   /**

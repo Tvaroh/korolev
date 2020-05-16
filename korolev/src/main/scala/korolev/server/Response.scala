@@ -55,5 +55,6 @@ object Response {
     val NotFound: Status = Status(404, "Not Found")
     val BadRequest: Status = Status(400, "Bad Request")
     val Gone: Status = Status(410, "Gone")
+    val SwitchingProtocols: Status = Status(101, "Switching Protocols")
   }
 }

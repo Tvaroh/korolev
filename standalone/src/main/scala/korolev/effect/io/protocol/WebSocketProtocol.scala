@@ -2,26 +2,37 @@ package korolev.effect.io.protocol
 
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.util.Base64
 
 import korolev.data.ByteVector
 import korolev.effect.Decoder
+import korolev.server.Request.RequestHeader
+import korolev.server.Response.Status
+import korolev.server.{Headers, Response}
 
 import scala.annotation.{switch, tailrec}
 
+/**
+  * @see https://tools.ietf.org/html/rfc6455
+  */
 object WebSocketProtocol {
 
   final val OpCodeBinary = 0
   final val OpCodeText = 1
   final val OpCodePing = 9
   final val OpCodePong = 10
+  final val GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" // See RFC 4.2.2
 
-  sealed abstract class WebSocketFrame(val opcode: Int)
+  final case class Intention(key: String)
 
-  object WebSocketFrame {
-    case class Binary(payload: ByteVector) extends WebSocketFrame(OpCodeBinary)
-    case class Text(payload: String) extends WebSocketFrame(OpCodeText)
-    case object Ping extends WebSocketFrame(OpCodePing)
-    case object Pong extends WebSocketFrame(OpCodePong)
+  sealed abstract class Frame(val opcode: Int)
+
+  object Frame {
+    case class Binary(payload: ByteVector) extends Frame(OpCodeBinary)
+    case class Text(payload: String) extends Frame(OpCodeText)
+    case object Ping extends Frame(OpCodePing)
+    case object Pong extends Frame(OpCodePong)
   }
 
   sealed trait DecodingState
@@ -42,13 +53,13 @@ object WebSocketProtocol {
 
   import DecodingState._
 
-  def decodeFrame(data: ByteVector): ((ByteVector, DecodingState), Decoder.Action[ByteVector, WebSocketFrame]) =
+  def decodeFrame(data: ByteVector): ((ByteVector, DecodingState), Decoder.Action[ByteVector, Frame]) =
     decodeFrames(ByteVector.empty, Begin, data)
 
   @tailrec
   def decodeFrames(buffer: ByteVector,
                    state: DecodingState,
-                   incoming: ByteVector): ((ByteVector, DecodingState), Decoder.Action[ByteVector, WebSocketFrame]) = {
+                   incoming: ByteVector): ((ByteVector, DecodingState), Decoder.Action[ByteVector, Frame]) = {
 
     def decodePayload(bytes: ByteVector, state: Payload): ByteVector =
       if (!state.containMask) {
@@ -94,10 +105,10 @@ object WebSocketProtocol {
       case s: Payload if bytes.length >= s.fullLength =>
         val payloadBytes = decodePayload(bytes, s)
         val frame = (s.opcode: @switch) match {
-          case OpCodeBinary => WebSocketFrame.Binary(payloadBytes)
-          case OpCodeText => WebSocketFrame.Text(payloadBytes.utf8String)
-          case OpCodePing => WebSocketFrame.Ping
-          case OpCodePong => WebSocketFrame.Pong
+          case OpCodeBinary => Frame.Binary(payloadBytes)
+          case OpCodeText => Frame.Text(payloadBytes.utf8String)
+          case OpCodePing => Frame.Ping
+          case OpCodePong => Frame.Pong
           case _ => throw UnsupportedOpcodeException(s.opcode)
         }
         bytes.slice(s.fullLength) match {
@@ -110,11 +121,11 @@ object WebSocketProtocol {
     }
   }
 
-  def encodeFrame(frame: WebSocketFrame, maybeMask: Option[Int]): ByteVector = frame match {
-    case WebSocketFrame.Ping => encodeFrame(fin = true, maybeMask, frame.opcode, ByteVector.empty)
-    case WebSocketFrame.Pong => encodeFrame(fin = true, maybeMask, frame.opcode, ByteVector.empty)
-    case WebSocketFrame.Binary(payload) => encodeFrame(fin = true, maybeMask, frame.opcode, payload)
-    case WebSocketFrame.Text(payload) =>
+  def encodeFrame(frame: Frame, maybeMask: Option[Int]): ByteVector = frame match {
+    case Frame.Ping => encodeFrame(fin = true, maybeMask, frame.opcode, ByteVector.empty)
+    case Frame.Pong => encodeFrame(fin = true, maybeMask, frame.opcode, ByteVector.empty)
+    case Frame.Binary(payload) => encodeFrame(fin = true, maybeMask, frame.opcode, payload)
+    case Frame.Text(payload) =>
       val bytes = ByteVector(payload.getBytes(StandardCharsets.UTF_8))
       encodeFrame(fin = true, maybeMask, frame.opcode, bytes)
     case _ => throw UnsupportedOpcodeException(frame.opcode)
@@ -146,6 +157,25 @@ object WebSocketProtocol {
         }
     }
   }
+
+  def findIntention(request: RequestHeader): Option[Intention] =
+    request.header(Headers.SecWebSocketKey).map(Intention)
+
+  def upgradeResponse[T](request: Response[T], intention: Intention): Response[T] = {
+    val kg = s"${intention.key}$GUID"
+    val sha1 = MessageDigest.getInstance("SHA-1") // TODO optimize me
+    val hash = sha1.digest(kg.getBytes(StandardCharsets.US_ASCII))
+    val accept = Base64.getEncoder.encodeToString(hash)
+    request.copy(
+      status = Status.SwitchingProtocols,
+      headers =
+        (Headers.SecWebSocketAccept -> accept) +:
+        Headers.ConnectionUpgrade +:
+        Headers.UpgradeWebSocket +:
+          request.headers
+    )
+  }
+
 
   case class UnsupportedOpcodeException(opcode: Int)
     extends Exception(s"Unsupported opcode: $opcode")
