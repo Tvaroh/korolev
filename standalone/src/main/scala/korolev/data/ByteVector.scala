@@ -1,7 +1,7 @@
 package korolev.data
 
 import java.nio.ByteBuffer
-import java.nio.charset.StandardCharsets
+import java.nio.charset.{Charset, StandardCharsets}
 
 import scala.annotation.{switch, tailrec}
 import scala.collection.GenSeq
@@ -240,9 +240,12 @@ object ByteVector {
     override def +:(array: Array[Byte]): ByteVector = new Arr(array)
   }
 
+  def ascii(s: String): ByteVector = new Arr(s.getBytes(StandardCharsets.US_ASCII))
+  def utf8(s: String): ByteVector = new Arr(s.getBytes(StandardCharsets.UTF_8))
   def fill(length: Int)(f: Int => Byte): ByteVector =
     new Arr((0 until length).map(f).toArray)
   def apply(xs: Int*): Arr = new Arr(xs.map(_.toByte).toArray)
   def apply(array: Array[Byte]): ByteVector = new Arr(array)
+  def apply(s: String, charset: Charset): ByteVector = new Arr(s.getBytes(charset))
   val empty: ByteVector = Empty
 }

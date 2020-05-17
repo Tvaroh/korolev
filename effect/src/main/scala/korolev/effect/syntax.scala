@@ -16,6 +16,8 @@
 
 package korolev.effect
 
+import scala.concurrent.ExecutionContext
+
 object syntax {
 
   implicit final class ListEffectOps[F[_]: Effect, A](effects: List[F[A]]) {
@@ -44,6 +46,8 @@ object syntax {
     def after[B](m: => F[B]): F[B] = Effect[F].flatMap(effect)(_ => m)
 
     def recover(f: PartialFunction[Throwable, A]): F[A] = Effect[F].recover[A](effect)(f)
+
+    def start(implicit ec: ExecutionContext): F[Effect.Fiber[F, A]] = Effect[F].start(effect)
 
     def runAsync(f: Either[Throwable, A] => Unit): Unit = Effect[F].runAsync(effect)(f)
 

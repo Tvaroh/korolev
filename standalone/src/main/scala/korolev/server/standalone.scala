@@ -1,34 +1,26 @@
 package korolev.server
 
-import java.net.InetSocketAddress
-import java.nio.ByteBuffer
-import java.nio.channels.{AsynchronousChannelGroup, AsynchronousServerSocketChannel, AsynchronousSocketChannel, CompletionHandler}
+import java.net.{InetSocketAddress, SocketAddress}
+import java.nio.channels.AsynchronousChannelGroup
 import java.util.concurrent.ExecutorService
 
 import korolev.data.ByteVector
 import korolev.effect.io.protocol.{Http11, WebSocketProtocol}
-import korolev.effect.{Decoder, Effect, Reporter}
-import korolev.effect.io.{LazyBytes, Socket}
+import korolev.effect.io.{LazyBytes, ServerSocket}
 import korolev.effect.syntax._
+import korolev.effect.{Decoder, Effect}
+
+import scala.concurrent.ExecutionContext
 
 object standalone {
 
   def buildServer[F[_]: Effect](service: KorolevService[F],
-                        host: String,
-                        port: Int)
-                       (implicit executorService: ExecutorService) = Effect[F].delay {
-
-    val serverAddress = new InetSocketAddress(host, port)
-    val asyncChannelGroup = AsynchronousChannelGroup.withThreadPool(executorService)
-    val serverChannel = AsynchronousServerSocketChannel
-      .open(asyncChannelGroup)
-      .bind(serverAddress)
-
-    object AcceptHandler extends CompletionHandler[AsynchronousSocketChannel, Unit] {
-      def completed(clientChannel: AsynchronousSocketChannel, notUsed: Unit): Unit = {
-        // Ready to accept new connection
-        serverChannel.accept((), AcceptHandler)
-        val decoder = Decoder(Socket.read(clientChannel, ByteBuffer.allocate(512)))
+                                address: SocketAddress,
+                                group: AsynchronousChannelGroup = null)
+                               (implicit ec: ExecutionContext): F[Unit] = {
+    ServerSocket.bind(address, group = group).flatMap { server =>
+      server.foreach { client =>
+        val decoder = Decoder(client)
         Http11
           .decodeRequest(decoder)
           .foreach { request =>
@@ -48,22 +40,19 @@ object standalone {
                   val upgradedResponse = WebSocketProtocol.upgradeResponse(response, intention)
                   val upgradedBody = response.body.map(m => WebSocketProtocol.encodeFrame(WebSocketProtocol.Frame.Text(m), None).mkArray)
                   val upgradedResponse2 = upgradedResponse.copy(body = LazyBytes(upgradedBody, None))
-                  Http11.renderResponse(upgradedResponse2).foreach(Socket.write(clientChannel))
+                  Http11.renderResponse(upgradedResponse2).foreach(client.write)
                 }
               case _ =>
                 // This is just HTTP query
                 service.http(request).flatMap { response =>
-                  Http11.renderResponse(response).foreach(Socket.write(clientChannel))
+                  Http11.renderResponse(response).foreach(client.write)
                 }
             }
           }
-          .runAsyncForget(Reporter.PrintReporter)
+          .start
+          .unit
       }
-      def failed(throwable: Throwable, notUsed: Unit): Unit =
-        throwable.printStackTrace()
     }
-    serverChannel.accept((), AcceptHandler)
-    serverChannel
   }
 
 

@@ -1,8 +1,11 @@
 package korolev.server
 
+import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 
 import korolev.Context
+import korolev.effect.Reporter
+import korolev.effect.syntax._
 import korolev.state.javaSerialization._
 
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -34,13 +37,10 @@ object TestApp extends App {
     }
   )
   val service = korolevService(config)
-//  val service: KorolevService[Future] = {
-//    case Request(path, param, cookie, headers, body) =>
-//      for {
-//        num <- body.toStrictUtf8
-//      } yield Response.Http(Response.Status.Ok, (num.toInt * 2).toString, Nil)
-//  }
 
-  standalone.buildServer[Future](service, "localhost", 8080)
+  standalone
+    .buildServer[Future](service, new InetSocketAddress("localhost", 8080))
+    .runAsyncForget(Reporter.PrintReporter)
+
   Thread.currentThread().join()
 }

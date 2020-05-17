@@ -122,14 +122,14 @@ object Http11 {
       .mkString
   }
 
-  def renderResponse[F[_]: Effect](response: Response[LazyBytes[F]]): Stream[F, Array[Byte]] = {
+  def renderResponse[F[_]: Effect](response: Response[LazyBytes[F]]): Stream[F, ByteVector] = {
     val updatedHeaders = response.body.bytesLength match {
       case Some(s) => (Headers.ContentLength -> s.toString) +: response.headers
       case None => response.headers
     }
     val fullHeaderString = renderResponseHeader(response.status, updatedHeaders)
-    val fullHeaderBytes = fullHeaderString.getBytes
-    Stream.eval(fullHeaderBytes) ++ response.body.chunks
+    val fullHeaderBytes = ByteVector.ascii(fullHeaderString)
+    Stream.eval(fullHeaderBytes) ++ response.body.chunks.map(ByteVector(_))
   }
 
   def parseParams(params: String): String => Option[String] = {
