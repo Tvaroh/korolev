@@ -113,7 +113,7 @@ object WebSocketProtocol {
           case _ => throw UnsupportedOpcodeException(s.opcode)
         }
         bytes.slice(s.fullLength) match {
-          case ByteVector.Empty => ((ByteVector.empty, Begin), Decoder.Action.PushValue(frame))
+          case ByteVector.Empty => ((ByteVector.empty, Begin), Decoder.Action.Push(frame))
           case restOfBytes => ((ByteVector.empty, Begin), Decoder.Action.Fork(frame, restOfBytes))
         }
       case state =>

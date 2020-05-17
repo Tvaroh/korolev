@@ -58,20 +58,20 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
 
   "decodeFrames" should "process example frame (from RFC https://tools.ietf.org/html/rfc6455 5.7)" in {
     WebSocketProtocol.decodeFrame(helloUnmaskedBytes) should matchPattern {
-      case (_, Decoder.Action.PushValue(`helloFrame`)) => ()
+      case (_, Decoder.Action.Push(`helloFrame`)) => ()
     }
   }
 
   it should "process example frame with mask" in {
     WebSocketProtocol.decodeFrame(helloMaskedBytes) should matchPattern {
-      case (_, Decoder.Action.PushValue(`helloFrame`)) => ()
+      case (_, Decoder.Action.Push(`helloFrame`)) => ()
     }
   }
 
   it should "process two frames sequentially" in {
     val bytes = helloMaskedBytes ++ helloUnmaskedBytes
     val (_, Decoder.Action.Fork(frame1, rest)) = WebSocketProtocol.decodeFrame(bytes)
-    val (_, Decoder.Action.PushValue(frame2)) = WebSocketProtocol.decodeFrame(rest)
+    val (_, Decoder.Action.Push(frame2)) = WebSocketProtocol.decodeFrame(rest)
 
     frame1 shouldEqual helloFrame
     frame2 shouldEqual helloFrame
@@ -99,7 +99,7 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
                     acc: Vector[Frame],
                     slice: ByteVector): (ByteVector, DecodingState, Vector[Frame]) =
       WebSocketProtocol.decodeFrames(buffer, state, slice) match {
-        case ((newBuffer, newState), Decoder.Action.PushValue(frame)) =>
+        case ((newBuffer, newState), Decoder.Action.Push(frame)) =>
           (newBuffer, newState, acc :+ frame)
         case ((newBuffer, newState), Decoder.Action.Fork(frame, restOfBytes)) =>
           decodeSlice(newBuffer, newState, acc :+ frame, restOfBytes)
@@ -165,7 +165,7 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
     val mask = if (masked) Some(random.nextInt()) else None
     val bytes = WebSocketProtocol.encodeFrame(frame, mask)
     WebSocketProtocol.decodeFrame(bytes) should matchPattern {
-      case (_, Decoder.Action.PushValue(`frame`)) => ()
+      case (_, Decoder.Action.Push(`frame`)) => ()
     }
   }
 }

@@ -6,9 +6,9 @@ import java.nio.channels.{AsynchronousChannelGroup, AsynchronousServerSocketChan
 import java.util.concurrent.ExecutorService
 
 import korolev.data.ByteVector
-import korolev.effect.io.protocol.WebSocketProtocol
+import korolev.effect.io.protocol.{Http11, WebSocketProtocol}
 import korolev.effect.{Decoder, Effect, Reporter}
-import korolev.effect.io.{Http, LazyBytes, Socket}
+import korolev.effect.io.{LazyBytes, Socket}
 import korolev.effect.syntax._
 
 object standalone {
@@ -29,7 +29,7 @@ object standalone {
         // Ready to accept new connection
         serverChannel.accept((), AcceptHandler)
         val decoder = Decoder(Socket.read(clientChannel, ByteBuffer.allocate(512)))
-        Http
+        Http11
           .decodeRequest(decoder)
           .foreach { request =>
             WebSocketProtocol.findIntention(request) match {
@@ -48,12 +48,12 @@ object standalone {
                   val upgradedResponse = WebSocketProtocol.upgradeResponse(response, intention)
                   val upgradedBody = response.body.map(m => WebSocketProtocol.encodeFrame(WebSocketProtocol.Frame.Text(m), None).mkArray)
                   val upgradedResponse2 = upgradedResponse.copy(body = LazyBytes(upgradedBody, None))
-                  Http.renderResponse(upgradedResponse2).foreach(Socket.write(clientChannel))
+                  Http11.renderResponse(upgradedResponse2).foreach(Socket.write(clientChannel))
                 }
               case _ =>
                 // This is just HTTP query
                 service.http(request).flatMap { response =>
-                  Http.renderResponse(response).foreach(Socket.write(clientChannel))
+                  Http11.renderResponse(response).foreach(Socket.write(clientChannel))
                 }
             }
           }
