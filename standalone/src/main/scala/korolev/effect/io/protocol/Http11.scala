@@ -28,7 +28,9 @@ object Http11 {
       .map { request =>
         request.copy(
           body = request.header(Headers.ContentLength).map(_.toLong) match {
-            case Some(contentLength) => decodeLimitedBody(decoder, contentLength)
+            case Some(contentLength) =>
+              val byteStream = decoder.decode(0L)(decodeLimitedBody(_, _, contentLength))
+              LazyBytes(byteStream.map(_.mkArray), Some(contentLength)) // TODO bytevector
             case None => LazyBytes(decoder.map(_.mkArray), None)
           }
         )
@@ -45,29 +47,22 @@ object Http11 {
     }
   }
 
-  def decodeLimitedBody[F[_] : Effect](decoder: Decoder[F, ByteVector],
-                                       contentLength: Long): LazyBytes[F] = {
-    val byteStream = decoder.decode[Long, ByteVector](0L) {
-      case (prevBytesTotal, bytes) =>
-        val bytesTotal = prevBytesTotal + bytes.length
-        if (prevBytesTotal < contentLength && bytesTotal > contentLength) {
-          // Chuck larger than should be
-          val b = contentLength - prevBytesTotal
-          val lhs = bytes.slice(0, b)
-          val rhs = bytes.slice(b, bytes.length)
-          // Push left slice to a downstream
-          // and take back right slice to the upstream
-          (bytesTotal, Decoder.Action.Fork(rhs, lhs))
-        } else if (bytesTotal > contentLength) {
-          // Take back all data to the upstream and finish
-          (bytesTotal, Decoder.Action.TakeBackFinish(bytes))
-        } else {
-          (bytesTotal, Decoder.Action.PushFinish(bytes))
-        }
+  def decodeLimitedBody[F[_] : Effect](prevBytesTotal: Long,
+                                       incoming: ByteVector,
+                                       contentLength: Long): (Long, Decoder.Action[ByteVector, ByteVector]) =
+    prevBytesTotal + incoming.length match {
+      case `contentLength` =>
+        (contentLength, Decoder.Action.PushFinish(incoming))
+      case total if total > contentLength =>
+        val pos = contentLength - prevBytesTotal
+        val value = incoming.slice(0, pos)
+        val takeBack = incoming.slice(pos)
+        // Push left slice to a downstream
+        // and take back right slice to the upstream
+        (total, Decoder.Action.ForkFinish(value, takeBack))
+      case total =>
+        (total, Decoder.Action.Push(incoming))
     }
-    // TODO bytevector
-    LazyBytes(byteStream.map(_.mkArray), Some(contentLength))
-  }
 
   def parseRequest(allBytes: ByteVector,
                    lastByteOfHeader: Long): (ByteVector, Request[Unit]) = {

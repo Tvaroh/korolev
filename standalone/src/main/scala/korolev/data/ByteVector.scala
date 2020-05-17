@@ -240,6 +240,8 @@ object ByteVector {
     override def +:(array: Array[Byte]): ByteVector = new Arr(array)
   }
 
+  def fill(length: Int)(f: Int => Byte): ByteVector =
+    new Arr((0 until length).map(f).toArray)
   def apply(xs: Int*): Arr = new Arr(xs.map(_.toByte).toArray)
   def apply(array: Array[Byte]): ByteVector = new Arr(array)
   val empty: ByteVector = Empty
