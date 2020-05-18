@@ -19,23 +19,33 @@ import scala.annotation.{switch, tailrec}
 /**
   * @see https://tools.ietf.org/html/rfc6455
   */
-object WebSocketProtocol {
+object RawWebSocketProtocol {
 
-  final val OpCodeBinary = 0
-  final val OpCodeText = 1
-  final val OpCodePing = 9
-  final val OpCodePong = 10
-  final val GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" // See RFC 4.2.2
+  final val GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+  // https://tools.ietf.org/html/rfc6455#section-11.8
+  final val OpContinuation = 0
+  final val OpText = 1
+  final val OpBinary = 2
+  final val OpConnectionClose = 8
+  final val OpPing = 9
+  final val OpPong = 10
+
 
   final case class Intention(key: String)
 
   sealed abstract class Frame(val opcode: Int)
 
   object Frame {
-    case class Binary(payload: ByteVector) extends Frame(OpCodeBinary)
-    case class Text(payload: String) extends Frame(OpCodeText)
-    case object Ping extends Frame(OpCodePing)
-    case object Pong extends Frame(OpCodePong)
+    case class Unspecified(fin: Boolean, override val opcode: Int, payload: ByteVector) extends Frame(opcode)
+    case class Continuation(payload: ByteVector, fin: Boolean) extends Frame(OpContinuation)
+    case class Binary(payload: ByteVector, fin: Boolean) extends Frame(OpBinary)
+    case class Text(payload: ByteVector, fin: Boolean) extends Frame(OpText) {
+      lazy val utf8: String = payload.utf8String
+    }
+    case object ConnectionClose extends Frame(OpConnectionClose)
+    case object Ping extends Frame(OpPing)
+    case object Pong extends Frame(OpPong)
   }
 
   sealed trait DecodingState
@@ -109,11 +119,13 @@ object WebSocketProtocol {
       case s: Payload if bytes.length >= s.fullLength =>
         val payloadBytes = decodePayload(bytes, s)
         val frame = (s.opcode: @switch) match {
-          case OpCodeBinary => Frame.Binary(payloadBytes)
-          case OpCodeText => Frame.Text(payloadBytes.utf8String)
-          case OpCodePing => Frame.Ping
-          case OpCodePong => Frame.Pong
-          case _ => throw UnsupportedOpcodeException(s.opcode)
+          case OpContinuation => Frame.Continuation(payloadBytes, s.fin)
+          case OpBinary => Frame.Binary(payloadBytes, s.fin)
+          case OpText => Frame.Text(payloadBytes, s.fin)
+          case OpConnectionClose => Frame.ConnectionClose
+          case OpPing => Frame.Ping
+          case OpPong => Frame.Pong
+          case _ => Frame.Unspecified(s.fin, s.opcode, payloadBytes)
         }
         bytes.slice(s.fullLength) match {
           case ByteVector.Empty => ((ByteVector.empty, Begin), Decoder.Action.Push(frame))
@@ -126,13 +138,11 @@ object WebSocketProtocol {
   }
 
   def encodeFrame(frame: Frame, maybeMask: Option[Int]): ByteVector = frame match {
-    case Frame.Ping => encodeFrame(fin = true, maybeMask, frame.opcode, ByteVector.empty)
-    case Frame.Pong => encodeFrame(fin = true, maybeMask, frame.opcode, ByteVector.empty)
-    case Frame.Binary(payload) => encodeFrame(fin = true, maybeMask, frame.opcode, payload)
-    case Frame.Text(payload) =>
-      val bytes = ByteVector(payload.getBytes(StandardCharsets.UTF_8))
-      encodeFrame(fin = true, maybeMask, frame.opcode, bytes)
-    case _ => throw UnsupportedOpcodeException(frame.opcode)
+    case Frame.Pong | Frame.Ping | Frame.ConnectionClose => encodeFrame(fin = true, maybeMask, frame.opcode, ByteVector.empty)
+    case Frame.Continuation(payload, fin) => encodeFrame(fin, maybeMask, frame.opcode, payload)
+    case Frame.Binary(payload, fin) => encodeFrame(fin, maybeMask, frame.opcode, payload)
+    case Frame.Text(payload, fin) => encodeFrame(fin, maybeMask, frame.opcode, payload)
+    case Frame.Unspecified(fin, opcode, payload) => encodeFrame(fin, maybeMask, opcode, payload)
   }
 
   def encodeFrame(fin: Boolean, maybeMask: Option[Int], opcode: Int, payload: ByteVector): ByteVector = {

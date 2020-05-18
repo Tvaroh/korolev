@@ -3,14 +3,14 @@ package korolev.data.effect.io.protocol
 import korolev.Router
 import korolev.data.ByteVector
 import korolev.effect.Decoder
-import korolev.effect.io.protocol.WebSocketProtocol._
+import korolev.effect.io.protocol.RawWebSocketProtocol._
 import korolev.server.{Request, Response}
 import org.scalatest.{Assertion, FlatSpec, Matchers}
 
 import scala.annotation.tailrec
 import scala.util.Random
 
-class WebSocketProtocolSpec extends FlatSpec with Matchers {
+class RawWebSocketProtocolSpec extends FlatSpec with Matchers {
 
   final val SliceTestFramesNumber = 10
 
@@ -44,7 +44,7 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
   // Example frames from RFC
   final val helloUnmaskedBytes = ByteVector(0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f)
   final val helloMaskedBytes = ByteVector(0x81, 0x85, 0x37, 0xfa, 0x21, 0x3d, 0x7f, 0x9f, 0x4d, 0x51, 0x58)
-  final val helloFrame = Frame.Text("Hello")
+  final val helloFrame = Frame.Text(ByteVector.utf8("Hello"), fin = true)
   final val helloMask = 0x37fa213d
 
   "encodeFrame" should "produce same bytes as in RFC (https://tools.ietf.org/html/rfc6455) 5.7. unmasked example" in {
@@ -152,7 +152,7 @@ class WebSocketProtocolSpec extends FlatSpec with Matchers {
   private def randomFrame(random: Random, size: Int): Frame = {
     val data = new Array[Byte](size)
     random.nextBytes(data)
-    Frame.Binary(ByteVector(data))
+    Frame.Binary(ByteVector(data), fin = true)
   }
 
   /**

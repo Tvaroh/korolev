@@ -5,7 +5,7 @@ import java.nio.channels.AsynchronousChannelGroup
 import java.util.concurrent.ExecutorService
 
 import korolev.data.ByteVector
-import korolev.effect.io.protocol.{Http11, WebSocketProtocol}
+import korolev.effect.io.protocol.{Http11, RawWebSocketProtocol}
 import korolev.effect.io.{LazyBytes, ServerSocket}
 import korolev.effect.Stream
 
@@ -26,16 +26,16 @@ object standalone {
         Http11
           .decodeRequest(decoder)
           .foreach { request =>
-            WebSocketProtocol.findIntention(request) match {
+            RawWebSocketProtocol.findIntention(request) match {
               case Some(intention) =>
-                val f = WebSocketProtocol.upgrade[F](intention) { (request: Request[Stream[F, WebSocketProtocol.Frame]]) =>
+                val f = RawWebSocketProtocol.upgrade[F](intention) { (request: Request[Stream[F, RawWebSocketProtocol.Frame]]) =>
                   val b2 = request.body.collect {
-                    case WebSocketProtocol.Frame.Text(message) =>
-                      message
+                    case RawWebSocketProtocol.Frame.Text(message, _) =>
+                      message.utf8String
                   }
                   // TODO service.ws should work with websocket frame
                   service.ws(request.copy(body = b2)).map { x =>
-                    x.copy(body = x.body.map(m => WebSocketProtocol.Frame.Text(m)))
+                    x.copy(body = x.body.map(m => RawWebSocketProtocol.Frame.Text(ByteVector.utf8(m), fin = true)))
                   }
                 }
                 f(request).flatMap(x => Http11.renderResponse(x).foreach(client.write))

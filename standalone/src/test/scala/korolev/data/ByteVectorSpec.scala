@@ -9,6 +9,7 @@ class ByteVectorSpec extends FlatSpec with Matchers {
   final val sliceSample1 = concatSample2.slice(3, 9)
   final val sliceSample2 = (sliceSample1 :+ "ghj".getBytes).slice(3, 9)
   final val sliceSample3 = sliceSample1.slice(0, 3)
+  final val binarySample1 = ByteVector(0x01, 0x23, 0x45, 0x67, 0x89, 0x10, 0x11, 0x12)
 
   "asciiString" should "encode concatenated byte vector #1" in {
     concatSample1.asciiString shouldEqual "abcdef"
@@ -63,8 +64,6 @@ class ByteVectorSpec extends FlatSpec with Matchers {
     sliceSample3.get(2) shouldEqual Some('c')
     sliceSample3.get(3) shouldEqual None
   }
-
-  final val binarySample1 = ByteVector(0x01, 0x23, 0x45, 0x67, 0x89.toByte, 0x10, 0x11, 0x12)
 
   "readShort" should "return correct number #1" in {
     binarySample1.readShort(2) shouldEqual 0x4567
