@@ -6,10 +6,13 @@ import java.security.MessageDigest
 import java.util.Base64
 
 import korolev.data.ByteVector
-import korolev.effect.Decoder
+import korolev.effect.{Decoder, Effect, Stream}
+import korolev.effect.io.LazyBytes
+import korolev.effect.syntax._
+
 import korolev.server.Request.RequestHeader
 import korolev.server.Response.Status
-import korolev.server.{Headers, Response}
+import korolev.server.{Headers, Request, Response}
 
 import scala.annotation.{switch, tailrec}
 
@@ -162,22 +165,37 @@ object WebSocketProtocol {
   def findIntention(request: RequestHeader): Option[Intention] =
     request.header(Headers.SecWebSocketKey).map(Intention)
 
-  def upgradeResponse[T](request: Response[T], intention: Intention): Response[T] = {
+  def handshake[T](response: Response[T], intention: Intention): Response[T] = {
     val kg = s"${intention.key}$GUID"
     val sha1 = MessageDigest.getInstance("SHA-1") // TODO optimize me
     val hash = sha1.digest(kg.getBytes(StandardCharsets.US_ASCII))
     val accept = Base64.getEncoder.encodeToString(hash)
-    request.copy(
+    response.copy(
       status = Status.SwitchingProtocols,
       headers =
         (Headers.SecWebSocketAccept -> accept) +:
         Headers.ConnectionUpgrade +:
         Headers.UpgradeWebSocket +:
-          request.headers
+          response.headers
     )
   }
 
+  def upgrade[F[_]: Effect](intention: Intention)
+                           (f: Request[Stream[F, Frame]] => F[Response[Stream[F, Frame]]]): Request[LazyBytes[F]] => F[Response[LazyBytes[F]]] = f
+      .compose[Request[LazyBytes[F]]] { request =>
+        val messages = Decoder(request.body.chunks.map(ByteVector(_)))
+          .decode((ByteVector.empty, DecodingState.begin)) {
+            case ((buffer, state), incoming) =>
+              decodeFrames(buffer, state, incoming)
+          }
+        request.copy(body = messages)
+      }
+      .andThen[F[Response[LazyBytes[F]]]] { responseF =>
+        responseF.map { response =>
+          val upgradedBody = response.body.map(m => encodeFrame(m, None).mkArray)
+          handshake(response, intention).copy(body = LazyBytes(upgradedBody, None))
+        }
+      }
 
-  case class UnsupportedOpcodeException(opcode: Int)
-    extends Exception(s"Unsupported opcode: $opcode")
+    case class UnsupportedOpcodeException(opcode: Int) extends Exception(s"Unsupported opcode: $opcode")
 }

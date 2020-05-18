@@ -7,6 +7,8 @@ import java.util.concurrent.ExecutorService
 import korolev.data.ByteVector
 import korolev.effect.io.protocol.{Http11, WebSocketProtocol}
 import korolev.effect.io.{LazyBytes, ServerSocket}
+import korolev.effect.Stream
+
 import korolev.effect.syntax._
 import korolev.effect.{Decoder, Effect}
 
@@ -26,22 +28,17 @@ object standalone {
           .foreach { request =>
             WebSocketProtocol.findIntention(request) match {
               case Some(intention) =>
-                // TODO should be moved to upgradeResponse
-                val messages = Decoder(request.body.chunks.map(ByteVector(_)))
-                  .decode((ByteVector.empty, WebSocketProtocol.DecodingState.begin)) {
-                    case ((buffer, state), incoming) =>
-                      WebSocketProtocol.decodeFrames(buffer, state, incoming)
-                  }
-                  .collect {
+                val f = WebSocketProtocol.upgrade[F](intention) { (request: Request[Stream[F, WebSocketProtocol.Frame]]) =>
+                  val b2 = request.body.collect {
                     case WebSocketProtocol.Frame.Text(message) =>
                       message
                   }
-                service.ws(request.copy(body = messages)) flatMap { response =>
-                  val upgradedResponse = WebSocketProtocol.upgradeResponse(response, intention)
-                  val upgradedBody = response.body.map(m => WebSocketProtocol.encodeFrame(WebSocketProtocol.Frame.Text(m), None).mkArray)
-                  val upgradedResponse2 = upgradedResponse.copy(body = LazyBytes(upgradedBody, None))
-                  Http11.renderResponse(upgradedResponse2).foreach(client.write)
+                  // TODO service.ws should work with websocket frame
+                  service.ws(request.copy(body = b2)).map { x =>
+                    x.copy(body = x.body.map(m => WebSocketProtocol.Frame.Text(m)))
+                  }
                 }
+                f(request).flatMap(x => Http11.renderResponse(x).foreach(client.write))
               case _ =>
                 // This is just HTTP query
                 service.http(request).flatMap { response =>
