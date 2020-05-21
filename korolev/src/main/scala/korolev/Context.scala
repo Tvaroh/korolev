@@ -49,8 +49,6 @@ object Context {
 
   sealed abstract class Scope[F[_]: Effect, S: StateSerializer: StateDeserializer, AccessType, M] {
 
-    import EventPhase._
-
     type Binding = Context.Binding[F, S, M]
     type Event = Context.Event[F, S, M]
     type EventFactory[T] = T => Event

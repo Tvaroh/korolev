@@ -231,9 +231,11 @@ final class ComponentInstance
       def subsequentId: Id = rc.subsequentId
       def currentId: Id = rc.currentId
       def currentContainerId: Id = rc.currentContainerId
-      def openNode(xmlNs: XmlNs, name: String): Unit = rc.openNode(xmlNs, name)
+      def openNode(xmlns: XmlNs, name: String): Unit = rc.openNode(xmlns, name)
       def closeNode(name: String): Unit = rc.closeNode(name)
-      def setAttr(xmlNs: XmlNs, name: String, value: String): Unit = rc.setAttr(xmlNs, name, value)
+      def openSelfClosingNode(xmlns: XmlNs, name: String): Unit = rc.openSelfClosingNode(xmlns, name)
+      def closeSelfClosingNode(): Unit = rc.closeSelfClosingNode()
+      def setAttr(xmlns: XmlNs, name: String, value: String): Unit = rc.setAttr(xmlns, name, value)
       def setStyle(name: String, value: String): Unit = rc.setStyle(name, value)
       def addTextNode(text: String): Unit = rc.addTextNode(text)
       def addMisc(misc: Binding[F, CS, E]): Unit = {
